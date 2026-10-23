@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-scan:
+    name: Markdown lint + gitleaks secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar xz -C /usr/local/bin gitleaks
+
+      - name: gitleaks secret scan (0 findings required)
+        run: gitleaks detect --source . --redact --exit-code 1
+
+      - name: Verify all case studies present
+        run: |
+          for i in 01 02 03 04 05; do
+            ls case-studies/${i}-*.md || { echo "Missing case study ${i}"; exit 1; }
+          done
+          echo "All 5 case studies present."
+
+      - name: Verify no real IPs or secrets in case studies
+        run: |
+          # Fail if any content matches real IPv4 patterns outside RFC 5737 example ranges
+          # (192.0.2.x, 198.51.100.x, 203.0.113.x are safe test ranges)
+          FOUND=$(grep -rE '\b(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' case-studies/ || true)
+          if [ -n "$FOUND" ]; then
+            echo "FAIL: Private IP addresses found in case studies:"
+            echo "$FOUND"
+            exit 1
+          fi
+          echo "PASS: No private IP addresses found."
+
+      - name: Verify scripts are bash-syntax-valid
+        run: |
+          for f in scripts/*.sh; do
+            bash -n "$f" || { echo "Syntax error in $f"; exit 1; }
+          done
+          echo "All scripts syntax-valid."
